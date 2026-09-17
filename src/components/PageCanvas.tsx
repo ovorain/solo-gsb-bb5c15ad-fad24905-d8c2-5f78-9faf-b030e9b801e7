@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { PDFPageProxy } from 'pdfjs-dist';
-import type { RedactionBox, Tool } from '../types';
+import type { HitRect, RedactionBox, Tool } from '../types';
 import { uid } from '../types';
 
 /** 视口（CSS 像素）坐标系中的矩形 */
@@ -28,6 +28,12 @@ interface Draft {
   rect: Rect;
 }
 
+interface Highlight {
+  id: string;
+  rects: HitRect[];
+  checked: boolean;
+}
+
 interface Props {
   page: PDFPageProxy;
   zoom: number;
@@ -36,6 +42,8 @@ interface Props {
   tool: Tool;
   boxes: RedactionBox[];
   selectedId: string | null;
+  /** 文本查找候选（PDF 页面坐标），画布上高亮显示，不参与交互 */
+  highlights: Highlight[];
   onSelect(id: string | null): void;
   onAdd(box: RedactionBox): void;
   onChange(box: RedactionBox): void;
@@ -69,6 +77,7 @@ export function PageCanvas({
   tool,
   boxes,
   selectedId,
+  highlights,
   onSelect,
   onAdd,
   onChange,
@@ -111,6 +120,17 @@ export function PageCanvas({
   /** 页面坐标 -> 视口矩形（用于显示） */
   const boxToRect = (b: RedactionBox): Rect => {
     const [x1, y1, x2, y2] = viewport.convertToViewportRectangle([b.x1, b.y1, b.x2, b.y2]);
+    return {
+      left: Math.min(x1, x2),
+      top: Math.min(y1, y2),
+      width: Math.abs(x2 - x1),
+      height: Math.abs(y2 - y1),
+    };
+  };
+
+  /** 查找候选框（PDF 页面坐标） -> 视口矩形 */
+  const hitRectToRect = (r: HitRect): Rect => {
+    const [x1, y1, x2, y2] = viewport.convertToViewportRectangle([r.x1, r.y1, r.x2, r.y2]);
     return {
       left: Math.min(x1, x2),
       top: Math.min(y1, y2),
@@ -227,6 +247,18 @@ export function PageCanvas({
     >
       <canvas ref={canvasRef} />
       <div ref={overlayRef} className="overlay">
+        {highlights.map((h) =>
+          h.rects.map((r, i) => {
+            const vr = hitRectToRect(r);
+            return (
+              <div
+                key={`${h.id}-${i}`}
+                className={`find-highlight${h.checked ? ' checked' : ''}`}
+                style={{ left: vr.left, top: vr.top, width: vr.width, height: vr.height }}
+              />
+            );
+          }),
+        )}
         {boxes.map((b) => {
           const r = draft && draft.id === b.id ? draft.rect : boxToRect(b);
           const selected = b.id === selectedId;
