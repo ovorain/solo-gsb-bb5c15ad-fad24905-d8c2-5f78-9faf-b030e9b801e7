@@ -16,6 +16,26 @@ export type RedactionMap = Record<number, RedactionBox[]>;
 
 export type Tool = 'draw' | 'select';
 
+/** 文本查找命中：某个查询词在某页上的一次出现，坐标与 RedactionBox 同一坐标系 */
+export interface FindCandidate {
+  id: string;
+  page: number;
+  /** 命中的查询词（归一化空白后） */
+  query: string;
+  /** 实际命中字形范围对应的候选框；换行时一次命中会产生多个框 */
+  boxes: RedactionBox[];
+  /** 是否与已有遮盖坐标重合（重复搜索 / 重复应用时跳过） */
+  existing: boolean;
+  /** 结果列表中的勾选状态 */
+  selected: boolean;
+}
+
+/** 查找结果按页分组 */
+export interface FindPageGroup {
+  page: number;
+  candidates: FindCandidate[];
+}
+
 export function uid(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID();

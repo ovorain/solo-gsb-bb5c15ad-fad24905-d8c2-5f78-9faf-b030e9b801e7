@@ -36,9 +36,19 @@ interface Props {
   tool: Tool;
   boxes: RedactionBox[];
   selectedId: string | null;
+  /** 文本查找命中的高亮（不拦截指针），每项可能含多个框 */
+  highlights?: Highlight[];
+  hoveredHighlightId?: string | null;
+  /** 请求滚动到可见区域的高亮 id；变化后滚动一次 */
+  scrollTargetId?: string | null;
   onSelect(id: string | null): void;
   onAdd(box: RedactionBox): void;
   onChange(box: RedactionBox): void;
+}
+
+export interface Highlight {
+  id: string;
+  boxes: RedactionBox[];
 }
 
 function normalizeRect(r: Rect): Rect {
@@ -69,6 +79,9 @@ export function PageCanvas({
   tool,
   boxes,
   selectedId,
+  highlights,
+  hoveredHighlightId,
+  scrollTargetId,
   onSelect,
   onAdd,
   onChange,
@@ -107,6 +120,31 @@ export function PageCanvas({
     });
     return () => task.cancel();
   }, [page, viewport]);
+
+  // 请求定位某个查找命中：翻页 / 布局完成后把它的第一个框滚动到 viewer 中央
+  useEffect(() => {
+    if (!scrollTargetId || !highlights) return;
+    const target = highlights.find((h) => h.id === scrollTargetId);
+    if (!target || target.boxes.length === 0) return;
+    const stage = overlayRef.current?.parentElement;
+    const viewer = stage?.parentElement;
+    if (!stage || !viewer) return;
+    const raf = requestAnimationFrame(() => {
+      const r = boxToRect(target.boxes[0]);
+      // 盒中心在 viewer 视口中的当前位置 -> 换算需要滚动的增量
+      const stageRect = stage.getBoundingClientRect();
+      const viewerRect = viewer.getBoundingClientRect();
+      const centerX = stageRect.left + r.left + r.width / 2;
+      const centerY = stageRect.top + r.top + r.height / 2;
+      viewer.scrollBy({
+        left: centerX - (viewerRect.left + viewerRect.width / 2),
+        top: centerY - (viewerRect.top + viewerRect.height / 2),
+        behavior: 'smooth',
+      });
+    });
+    return () => cancelAnimationFrame(raf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollTargetId, page, viewport, highlights]);
 
   /** 页面坐标 -> 视口矩形（用于显示） */
   const boxToRect = (b: RedactionBox): Rect => {
@@ -227,6 +265,18 @@ export function PageCanvas({
     >
       <canvas ref={canvasRef} />
       <div ref={overlayRef} className="overlay">
+        {highlights?.map((h) =>
+          h.boxes.map((b) => {
+            const r = boxToRect(b);
+            return (
+              <div
+                key={`${h.id}-${b.id}`}
+                className={`find-highlight${h.id === hoveredHighlightId ? ' hover' : ''}`}
+                style={{ left: r.left, top: r.top, width: r.width, height: r.height }}
+              />
+            );
+          }),
+        )}
         {boxes.map((b) => {
           const r = draft && draft.id === b.id ? draft.rect : boxToRect(b);
           const selected = b.id === selectedId;

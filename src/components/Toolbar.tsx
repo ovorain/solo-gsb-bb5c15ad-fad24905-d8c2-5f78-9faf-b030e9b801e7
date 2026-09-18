@@ -9,6 +9,7 @@ interface Props {
   canUndo: boolean;
   canRedo: boolean;
   exporting: boolean;
+  findOpen: boolean;
   onOpen(): void;
   onToolChange(tool: Tool): void;
   onZoomIn(): void;
@@ -20,6 +21,7 @@ interface Props {
   onRedo(): void;
   onClearPage(): void;
   onExport(): void;
+  onToggleFind(): void;
 }
 
 export function Toolbar(props: Props) {
@@ -32,6 +34,7 @@ export function Toolbar(props: Props) {
     canUndo,
     canRedo,
     exporting,
+    findOpen,
   } = props;
 
   return (
@@ -57,6 +60,17 @@ export function Toolbar(props: Props) {
         title="选择、移动、缩放已有遮盖框"
       >
         选择 / 调整
+      </button>
+
+      <div className="sep" />
+
+      <button
+        className={findOpen ? 'active' : ''}
+        disabled={!hasDoc}
+        onClick={props.onToggleFind}
+        title="按文本内容逐页查找并批量加入遮盖（纯本地处理）"
+      >
+        文本查找遮盖
       </button>
 
       <div className="sep" />

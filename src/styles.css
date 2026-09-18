@@ -310,3 +310,265 @@ button.primary {
   color: var(--text-dim);
   font-size: 12px;
 }
+
+/* ---------- 查找命中高亮 ---------- */
+.find-highlight {
+  position: absolute;
+  background: rgba(255, 221, 0, 0.42);
+  border: 1px solid rgba(214, 158, 0, 0.9);
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 5;
+  box-sizing: border-box;
+}
+
+.find-highlight.hover {
+  background: rgba(255, 152, 0, 0.55);
+  border-color: #ff8f00;
+  box-shadow: 0 0 0 2px rgba(255, 143, 0, 0.45);
+}
+
+/* ---------- 文本查找面板 ---------- */
+.find-panel {
+  width: 320px;
+  flex: none;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.find-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+}
+
+.find-close {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.find-close:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.find-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.find-input {
+  width: 100%;
+  min-height: 92px;
+  resize: vertical;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.find-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.find-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.find-actions button {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.find-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.find-actions button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.find-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.find-status {
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+
+.find-status.scanning {
+  background: #1d3a4a;
+  color: #b4e0ff;
+}
+
+.find-status.warn {
+  background: #4a3a1d;
+  color: #ffe0a3;
+}
+
+.find-status.ok {
+  background: #1d4a2b;
+  color: #b4ffcf;
+}
+
+.find-status.dim {
+  background: var(--panel-2);
+  color: var(--text-dim);
+}
+
+.find-progress {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 2px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.find-progress-bar {
+  height: 100%;
+  background: #7cc4ff;
+  transition: width 0.15s ease;
+}
+
+.find-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.find-results {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.find-group {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.find-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0 6px;
+  border-bottom: 1px dashed var(--border);
+  margin-bottom: 4px;
+}
+
+.find-page-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
+.find-page-link:hover {
+  text-decoration: underline;
+}
+
+.find-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+  font-size: 12.5px;
+  border-radius: 4px;
+}
+
+.find-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.find-item.existing {
+  opacity: 0.5;
+}
+
+.find-item-query {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.find-item:not(.existing) .find-item-query {
+  cursor: pointer;
+}
+
+.find-item:not(.existing) .find-item-query:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.find-item-parts,
+.find-item-tag {
+  font-size: 10.5px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  white-space: nowrap;
+}
+
+.find-item-tag {
+  color: #b4ffcf;
+  border-color: #2e6b43;
+}
+
+.find-footnote {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.6;
+}
+
+.find-panel input[type='checkbox'] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}

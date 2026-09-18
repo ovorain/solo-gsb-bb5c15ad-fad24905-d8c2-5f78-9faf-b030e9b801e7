@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist';
 import { pdfjs } from './pdf/pdfjs';
-import type { RedactionBox, RedactionMap, Tool } from './types';
+import type { FindCandidate, FindPageGroup, RedactionBox, RedactionMap, Tool } from './types';
 import { useUndoable } from './state/useUndoable';
 import { exportRedactedPdf } from './pdf/exportPdf';
+import {
+  isCandidateCovered,
+  parseQueries,
+  scanDocument,
+} from './pdf/findText';
 import { Toolbar } from './components/Toolbar';
 import { PageList } from './components/PageList';
 import { PageCanvas } from './components/PageCanvas';
+import { FindPanel, type ApplyResult, type FindStatus } from './components/FindPanel';
 
 const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
 
@@ -23,6 +29,20 @@ export default function App() {
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // ---------- 文本查找遮盖 ----------
+  const [findOpen, setFindOpen] = useState(false);
+  const [findStatus, setFindStatus] = useState<FindStatus>({ kind: 'idle' });
+  const [groups, setGroups] = useState<FindPageGroup[]>([]);
+  const [noTextPages, setNoTextPages] = useState<number[]>([]);
+  const [hoveredCandidate, setHoveredCandidate] = useState<string | null>(null);
+  /** 请求 PageCanvas 滚动到可见区域的候选 id（点击结果项 / 悬停时设置） */
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  const [applyInfo, setApplyInfo] = useState<ApplyResult | null>(null);
+  const cancelRef = useRef(false);
+  const candidateSeq = useRef(0);
+  const currentDocRef = useRef<PDFDocumentProxy | null>(null);
+  const scanSeqRef = useRef(0);
 
   const {
     value: redactions,
@@ -46,11 +66,19 @@ export default function App() {
         const pdf = await pdfjs.getDocument({ data }).promise;
         void doc?.destroy();
         setDoc(pdf);
+        currentDocRef.current = pdf;
         setFileName(file.name);
         setPageNum(1);
         setRotation(0);
         setSelectedId(null);
         reset({});
+        setFindOpen(false);
+        setFindStatus({ kind: 'idle' });
+        setGroups([]);
+        setNoTextPages([]);
+        setApplyInfo(null);
+        setHoveredCandidate(null);
+        cancelRef.current = true;
       } catch {
         setError('无法解析该文件，请确认是有效的 PDF。');
       }
@@ -165,6 +193,178 @@ export default function App() {
     }
   };
 
+  // ---------- 查找 ----------
+  const onSearch = useCallback(
+    async (raw: string) => {
+      if (!doc) return;
+      const queries = parseQueries(raw);
+      if (queries.length === 0) {
+        setFindStatus({ kind: 'empty-query' });
+        setGroups([]);
+        setNoTextPages([]);
+        return;
+      }
+      cancelRef.current = false;
+      const mySeq = (scanSeqRef.current += 1);
+      setApplyInfo(null);
+      setHoveredCandidate(null);
+      setFindStatus({ kind: 'scanning', done: 0, total: doc.numPages });
+      const scanDoc = doc;
+      const { pages, cancelled } = await scanDocument(scanDoc, queries, {
+        onProgress: (done, total) => {
+          // 已有更新的一次扫描开始时，旧扫描的进度不再回写
+          if (scanSeqRef.current === mySeq) {
+            setFindStatus({ kind: 'scanning', done, total });
+          }
+        },
+        isCancelled: () => cancelRef.current || scanSeqRef.current !== mySeq,
+      });
+      // 扫描期间用户已导入其它文件或发起了更新的扫描，则丢弃本次结果
+      if (currentDocRef.current !== scanDoc || scanSeqRef.current !== mySeq) return;
+      if (cancelRef.current && cancelled) {
+        setFindStatus({ kind: 'done', cancelled: true });
+      } else {
+        setFindStatus({ kind: 'done', cancelled: false });
+      }
+      const nextGroups: FindPageGroup[] = [];
+      const noText: number[] = [];
+      for (const r of pages) {
+        if (r.noText) {
+          noText.push(r.page);
+          continue;
+        }
+        if (r.hits.length === 0) continue;
+        const candidates: FindCandidate[] = r.hits.map((hit) => ({
+          id: `cand-${(candidateSeq.current += 1)}`,
+          page: r.page,
+          query: hit.query,
+          boxes: hit.boxes,
+          existing: isCandidateCovered(hit, redactions[r.page] ?? []),
+          selected: false,
+        }));
+        nextGroups.push({ page: r.page, candidates });
+      }
+      setGroups(nextGroups);
+      setNoTextPages(noText);
+    },
+    [doc, redactions],
+  );
+
+  const onCancelSearch = () => {
+    cancelRef.current = true;
+  };
+
+  const updateCandidate = (id: string, patch: Partial<FindCandidate>) => {
+    setGroups((gs) =>
+      gs.map((g) => ({
+        ...g,
+        candidates: g.candidates.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+      })),
+    );
+  };
+
+  const onToggleCandidate = (id: string) => {
+    const target = groups.find((g) => g.candidates.some((c) => c.id === id))?.candidates.find(
+      (c) => c.id === id,
+    );
+    if (!target || target.existing) return;
+    setApplyInfo(null);
+    updateCandidate(id, { selected: !target.selected });
+  };
+
+  const onTogglePage = (pageNo: number, select: boolean) => {
+    setApplyInfo(null);
+    setGroups((gs) =>
+      gs.map((g) =>
+        g.page === pageNo
+          ? {
+              ...g,
+              candidates: g.candidates.map((c) =>
+                c.existing ? c : { ...c, selected: select },
+              ),
+            }
+          : g,
+      ),
+    );
+  };
+
+  const onSelectAll = (select: boolean) => {
+    setApplyInfo(null);
+    setGroups((gs) =>
+      gs.map((g) => ({
+        ...g,
+        candidates: g.candidates.map((c) => (c.existing ? c : { ...c, selected: select })),
+      })),
+    );
+  };
+
+  /**
+   * 整批加入遮盖：所有勾选候选一次性合并进 RedactionMap，
+   * 只调用一次 setRedactions，因此只产生一条撤销记录。
+   * 与已有遮盖坐标相同的候选跳过。
+   */
+  const onApply = () => {
+    const chosen = groups.flatMap((g) => g.candidates).filter((c) => c.selected && !c.existing);
+    if (chosen.length === 0) return;
+    const next: RedactionMap = { ...redactions };
+    let added = 0;
+    let skipped = 0;
+    // 本批内已加入的框也要参与判重
+    const isDup = (pageNo: number, boxes: RedactionBox[]) =>
+      isCandidateCovered({ boxes }, next[pageNo] ?? []);
+    const touched = new Set<number>();
+    for (const c of chosen) {
+      touched.add(c.page);
+      if (isDup(c.page, c.boxes)) {
+        skipped += 1;
+        continue;
+      }
+      next[c.page] = [...(next[c.page] ?? []), ...c.boxes];
+      added += 1;
+    }
+    if (added > 0) setRedactions(next);
+    // 已应用的候选标记为“已遮盖”并取消勾选，重复搜索前不会再次被加入
+    setGroups((gs) =>
+      gs.map((g) =>
+        touched.has(g.page)
+          ? {
+              ...g,
+              candidates: g.candidates.map((c) =>
+                c.selected && !c.existing
+                  ? { ...c, selected: false, existing: true }
+                  : c,
+              ),
+            }
+          : g,
+      ),
+    );
+    setApplyInfo({ added, skipped });
+  };
+
+  // 当前页需要在画布上高亮的候选（未遮盖的）
+  const currentHighlights =
+    groups.find((g) => g.page === pageNum)?.candidates.filter((c) => !c.existing) ?? [];
+
+  // 遮盖发生变化（手工删除 / 撤销 / 重做）后，重新计算候选的“与现有遮盖重合”标记，
+  // 保证重复应用时始终跳过坐标相同的候选，删除遮盖后候选又可重新勾选
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  useEffect(() => {
+    const gs = groupsRef.current;
+    if (gs.length === 0) return;
+    let changed = false;
+    const next = gs.map((g) => ({
+      ...g,
+      candidates: g.candidates.map((c) => {
+        const existing = isCandidateCovered(c, redactions[c.page] ?? []);
+        if (existing === c.existing) return c;
+        changed = true;
+        return { ...c, existing, selected: existing ? false : c.selected };
+      }),
+    }));
+    if (changed) setGroups(next);
+  }, [redactions]);
+
   return (
     <div className="app">
       <input
@@ -188,6 +388,7 @@ export default function App() {
         canUndo={canUndo}
         canRedo={canRedo}
         exporting={exporting}
+        findOpen={findOpen}
         onOpen={() => fileInputRef.current?.click()}
         onToolChange={setTool}
         onZoomIn={zoomIn}
@@ -199,6 +400,7 @@ export default function App() {
         onRedo={redo}
         onClearPage={clearPage}
         onExport={() => void onExport()}
+        onToggleFind={() => setFindOpen((v) => !v)}
       />
 
       {error && <div className="error-bar">{error}</div>}
@@ -220,12 +422,36 @@ export default function App() {
                 tool={tool}
                 boxes={boxesForPage}
                 selectedId={selectedId}
+                highlights={currentHighlights}
+                hoveredHighlightId={hoveredCandidate}
+                scrollTargetId={scrollTarget}
                 onSelect={setSelectedId}
                 onAdd={addBox}
                 onChange={changeBox}
               />
             )}
           </div>
+          {findOpen && (
+            <FindPanel
+              status={findStatus}
+              groups={groups}
+              noTextPages={noTextPages}
+              applyInfo={applyInfo}
+              onSearch={(raw) => void onSearch(raw)}
+              onCancel={onCancelSearch}
+              onApply={onApply}
+              onClose={() => setFindOpen(false)}
+              onToggle={onToggleCandidate}
+              onTogglePage={onTogglePage}
+              onSelectAll={onSelectAll}
+              onJumpPage={(n) => setPageNum(n)}
+              onJumpItem={(id, pageNo) => {
+                setPageNum(pageNo);
+                setScrollTarget(id);
+              }}
+              onHover={setHoveredCandidate}
+            />
+          )}
         </div>
       ) : (
         <div className="empty">
